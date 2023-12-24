@@ -1,11 +1,12 @@
 package usercontroller
 
 import (
-	"html/template"
+	// "html/template"
+	"encoding/json"
+	// "fmt"
+	"go-crud/libraries"
 	"net/http"
 	"strconv"
-
-	"go-crud/libraries"
 
 	"go-crud/models"
 
@@ -16,43 +17,39 @@ var validation = libraries.NewValidation()
 var userModel = models.NewUserModel()
 
 func Index(response http.ResponseWriter, request *http.Request) {
-
+	// Mengambil data dari userModel
 	dataku, _ := userModel.FindAll()
 
-	data := map[string]interface{}{
+	// Membuat map untuk data JSON
+	jsonData := map[string]interface{}{
 		"dataku": dataku,
 	}
 
-	temp, err := template.ParseFiles("views/pages/index.html")
+	// Mengonversi map menjadi JSON
+	jsonResponse, err := json.Marshal(jsonData)
 	if err != nil {
-		panic(err)
+		http.Error(response, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
-	temp.Execute(response, data)
+
+	// Mengatur header Content-Type sebagai application/json
+	response.Header().Set("Content-Type", "application/json")
+
+	// Menulis respon JSON ke http.ResponseWriter
+	response.Write(jsonResponse)
 }
 
 func Add(response http.ResponseWriter, request *http.Request) {
-
-	if request.Method == http.MethodGet {
-		temp, err := template.ParseFiles("views/pages/add.html")
-		if err != nil {
-			panic(err)
-		}
-		temp.Execute(response, nil)
-	} else if request.Method == http.MethodPost {
-
-		request.ParseForm()
-
+	if request.Method == http.MethodPost {
+		// Parse JSON from request body
 		var dataku entities.Dataku
-		dataku.NamaLengkap = request.Form.Get("nama_lengkap")
-		dataku.NIK = request.Form.Get("nik")
-		dataku.JenisKelamin = request.Form.Get("jenis_kelamin")
-		dataku.TempatLahir = request.Form.Get("tempat_lahir")
-		dataku.TanggalLahir = request.Form.Get("tanggal_lahir")
-		dataku.Alamat = request.Form.Get("alamat")
-		dataku.NoHp = request.Form.Get("no_hp")
+		err := json.NewDecoder(request.Body).Decode(&dataku)
+		if err != nil {
+			http.Error(response, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
 
 		var data = make(map[string]interface{})
-
 		vErrors := validation.Struct(dataku)
 
 		if vErrors != nil {
@@ -63,16 +60,23 @@ func Add(response http.ResponseWriter, request *http.Request) {
 			userModel.Create(dataku)
 		}
 
-		temp, _ := template.ParseFiles("views/pages/add.html")
-		temp.Execute(response, data)
-	}
+		// Convert data to JSON
+		jsonResponse, err := json.Marshal(data)
+		if err != nil {
+			http.Error(response, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
 
+		// Set response headers
+		response.Header().Set("Content-Type", "application/json")
+
+		// Write JSON response to http.ResponseWriter
+		response.Write(jsonResponse)
+	}
 }
 
 func Edit(response http.ResponseWriter, request *http.Request) {
-
 	if request.Method == http.MethodGet {
-
 		queryString := request.URL.Query()
 		id, _ := strconv.ParseInt(queryString.Get("id"), 10, 64)
 
@@ -83,25 +87,16 @@ func Edit(response http.ResponseWriter, request *http.Request) {
 			"user": user,
 		}
 
-		temp, err := template.ParseFiles("views/pages/edit.html")
-		if err != nil {
-			panic(err)
-		}
-		temp.Execute(response, data)
-
-	} else if request.Method == http.MethodPost {
-
-		request.ParseForm()
-
+		// Render JSON response
+		renderJSON(response, data)
+	} else if request.Method == http.MethodPut {
 		var dataku entities.Dataku
-		dataku.Id, _ = strconv.ParseInt(request.Form.Get("id"), 10, 64)
-		dataku.NamaLengkap = request.Form.Get("nama_lengkap")
-		dataku.NIK = request.Form.Get("nik")
-		dataku.JenisKelamin = request.Form.Get("jenis_kelamin")
-		dataku.TempatLahir = request.Form.Get("tempat_lahir")
-		dataku.TanggalLahir = request.Form.Get("tanggal_lahir")
-		dataku.Alamat = request.Form.Get("alamat")
-		dataku.NoHp = request.Form.Get("no_hp")
+
+		decoder := json.NewDecoder(request.Body)
+		if err := decoder.Decode(&dataku); err != nil {
+			http.Error(response, "Invalid JSON format", http.StatusBadRequest)
+			return
+		}
 
 		var data = make(map[string]interface{})
 
@@ -115,18 +110,42 @@ func Edit(response http.ResponseWriter, request *http.Request) {
 			userModel.Update(dataku)
 		}
 
-		temp, _ := template.ParseFiles("views/pages/edit.html")
-		temp.Execute(response, data)
+		// Render JSON response
+		renderJSON(response, data)
 	}
+}
 
+// Helper function to render JSON response
+func renderJSON(response http.ResponseWriter, data interface{}) {
+	response.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(response).Encode(data)
 }
 
 func Delete(response http.ResponseWriter, request *http.Request) {
-
+	// Mendapatkan ID dari parameter URL
 	queryString := request.URL.Query()
-	id, _ := strconv.ParseInt(queryString.Get("id"), 10, 64)
+	id, err := strconv.ParseInt(queryString.Get("id"), 10, 64)
+	// fmt.Printf(err.Error())
+	if err != nil {
+		response.WriteHeader(http.StatusBadRequest)
+		return
+	}
 
-	userModel.Delete(id)
+	// Menghapus data dengan menggunakan UserModel
+	err = userModel.Delete(id)
+	if err != nil {
+		// Jika terjadi kesalahan saat menghapus
+		response.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 
-	http.Redirect(response, request, "/pages", http.StatusSeeOther)
+	// Mengembalikan respon JSON
+	res := map[string]interface{}{
+		"status":  "success",
+		"message": "Data berhasil dihapus",
+	}
+
+	response.Header().Set("Content-Type", "application/json")
+	response.WriteHeader(http.StatusOK)
+	json.NewEncoder(response).Encode(res)
 }

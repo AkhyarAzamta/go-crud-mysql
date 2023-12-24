@@ -102,6 +102,8 @@ func (p *UserModel) Update(dataku entities.Dataku) error {
 	return nil
 }
 
-func (p *UserModel) Delete(id int64) {
-	p.conn.Exec("delete from dataku where id = ?", id)
+func (p *UserModel) Delete(id int64) error {
+	_, err := p.conn.Exec("delete from dataku where id = ?", id)
+	return err
 }
+
